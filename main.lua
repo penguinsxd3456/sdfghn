@@ -11,7 +11,6 @@ local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 
 -- Script state
 local isRunning = false
-local loopCoroutine = nil
 local stats = {
     totalAttempts = 0,
     totalSuccesses = 0,
@@ -35,8 +34,11 @@ local CONFIG = {
     MimicHumanTyping = true,
     RandomizeOrder = true,
     MaxFailures = 10,
-    WebhookURL = "https://discord.com/api/webhooks/1518459380331446272/2e-ZrPldCo-k8fYMpWyn_nIg9YjBS6CxmjNVLKhrxFq_1kSjX2hy1Nvnxx7wbx6cT-9o"
+    WebhookURL = "YOUR_DISCORD_WEBHOOK_HERE"
 }
+
+-- Forward declaration for UI update function
+local UIUpdateStats
 
 -- ============================================
 -- RESOLVE REMOTE EVENT
@@ -72,11 +74,11 @@ local function getRemoteEvent()
 end
 
 -- ============================================
--- WEBHOOK FUNCTION (Delta Compatible)
+-- WEBHOOK FUNCTION (Delta / Executor Compatible)
 -- ============================================
 
 local function sendWebhook(title, description, color, fields)
-    if not CONFIG.WebhookURL or CONFIG.WebhookURL == "" then return end
+    if not CONFIG.WebhookURL or CONFIG.WebhookURL == "" or string.find(CONFIG.WebhookURL, "YOUR_") then return end
     
     local embed = {
         title = title or "🔄 Upgrade Update",
@@ -84,7 +86,7 @@ local function sendWebhook(title, description, color, fields)
         color = color or 0x00FF00,
         timestamp = os.date("!%Y-%m-%dT%T.000Z"),
         footer = {
-            text = "Tap Heroes Exploit • GODMODE"
+            text = "Tap Heroes Assistant"
         },
         fields = fields or {}
     }
@@ -92,22 +94,13 @@ local function sendWebhook(title, description, color, fields)
     local payload = {
         content = "**🔥 TAP HEROES UPGRADE ACTIVITY**",
         embeds = { embed },
-        username = "Tap Heroes Exploit"
+        username = "Tap Heroes Manager"
     }
     
-    -- Delta's request function
     local success, err = pcall(function()
-        if syn and syn.request then
-            syn.request({
-                Url = CONFIG.WebhookURL,
-                Method = "POST",
-                Headers = {
-                    ["Content-Type"] = "application/json"
-                },
-                Body = HttpService:JSONEncode(payload)
-            })
-        elseif request then
-            request({
+        local reqFunc = syn and syn.request or request
+        if reqFunc then
+            reqFunc({
                 Url = CONFIG.WebhookURL,
                 Method = "POST",
                 Headers = {
@@ -119,7 +112,7 @@ local function sendWebhook(title, description, color, fields)
     end)
     
     if not success then
-        -- Silent fail - don't spam console
+        -- Silent fail to avoid spamming the console
     end
 end
 
@@ -129,11 +122,9 @@ end
 
 local payloadIndex = 1
 local PayloadFormats = {
-    -- Format 1: Simple array
     function(upgradeID) 
         return { upgradeID, LocalPlayer.UserId }
     end,
-    -- Format 2: Table with amount
     function(upgradeID)
         return {
             UpgradeId = upgradeID,
@@ -142,11 +133,9 @@ local PayloadFormats = {
             Timestamp = os.time()
         }
     end,
-    -- Format 3: Just the name
     function(upgradeID)
         return upgradeID
     end,
-    -- Format 4: Nested table
     function(upgradeID)
         return {
             Purchase = {
@@ -174,7 +163,7 @@ local function generatePayload(upgradeID)
 end
 
 -- ============================================
--- CORE SPAM FUNCTION
+-- CORE FUNCTION
 -- ============================================
 
 local function firePurchase(upgradeID)
@@ -186,7 +175,6 @@ local function firePurchase(upgradeID)
     stats.currentUpgrade = upgradeID
     local payload = generatePayload(upgradeID)
     
-    -- Try to stringify payload for display
     local success, json = pcall(HttpService.JSONEncode, HttpService, payload)
     stats.lastPayload = success and json or tostring(payload)
     
@@ -204,14 +192,12 @@ local function firePurchase(upgradeID)
         stats.totalSuccesses = stats.totalSuccesses + 1
         stats.failureCount = 0
         
-        -- Update UI stats
         if UIUpdateStats then UIUpdateStats() end
         
-        -- Send webhook every 5 successes
         if stats.totalSuccesses % 5 == 0 then
             sendWebhook(
                 "✅ UPGRADE SUCCESSFUL",
-                "**" .. upgradeID .. "** purchased successfully",
+                "**" .. upgradeID .. "** processed successfully",
                 0x00FF00,
                 {
                     { name = "🎯 Upgrade", value = upgradeID, inline = true },
@@ -247,8 +233,8 @@ local function spamLoop()
     end
     
     sendWebhook(
-        "🔥 SPAMMER STARTED",
-        "Tap Heroes Upgrade Spammer is now **LIVE**",
+        "🔥 MODULE STARTED",
+        "Sequence is now **LIVE**",
         0x9B59B6,
         {
             { name = "🎯 Upgrades", value = table.concat(CONFIG.UpgradeIDs, ", "), inline = false },
@@ -257,12 +243,13 @@ local function spamLoop()
         }
     )
     
-    local iteration = 0
-    
     while isRunning do
-        iteration = iteration + 1
-        
-        local upgradeList = CONFIG.UpgradeIDs
+        -- Create a shallow copy to prevent permanently scrambling the config order
+        local upgradeList = {}
+        for i, v in ipairs(CONFIG.UpgradeIDs) do
+            upgradeList[i] = v
+        end
+
         if CONFIG.RandomizeOrder then
             for i = #upgradeList, 2, -1 do
                 local j = math.random(1, i)
@@ -280,7 +267,7 @@ local function spamLoop()
             end
             
             if stats.failureCount >= CONFIG.MaxFailures then
-                warn("[PAUSING] Too many failures. Waiting 60s...")
+                warn("[PAUSING] Too many consecutive failures. Waiting 60s...")
                 local pauseEnd = os.time() + 60
                 while isRunning and os.time() < pauseEnd do
                     task.wait(1)
@@ -289,7 +276,6 @@ local function spamLoop()
             end
         end
         
-        -- Update stats in UI every cycle
         if UIUpdateStats then UIUpdateStats() end
         
         local interval = math.random(CONFIG.MinInterval * 10, CONFIG.MaxInterval * 10) / 10
@@ -301,16 +287,14 @@ local function spamLoop()
 end
 
 -- ============================================
--- CREATE UI (Pure Lua - No Libraries)
+-- CREATE UI (Pure Lua)
 -- ============================================
 
--- Create ScreenGui
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "TapHeroesSpammer"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = PlayerGui
 
--- Main Frame
 local mainFrame = Instance.new("Frame")
 mainFrame.Name = "MainFrame"
 mainFrame.Size = UDim2.new(0, 450, 0, 600)
@@ -322,19 +306,17 @@ mainFrame.BorderColor3 = Color3.fromRGB(100, 50, 200)
 mainFrame.ClipsDescendants = true
 mainFrame.Parent = screenGui
 
--- Title
 local title = Instance.new("TextLabel")
 title.Size = UDim2.new(1, 0, 0, 40)
 title.Position = UDim2.new(0, 0, 0, 0)
 title.BackgroundColor3 = Color3.fromRGB(100, 50, 200)
 title.BackgroundTransparency = 0.3
-title.Text = "🔥 TAP HEROES SPAMMER v4.0"
+title.Text = "🔥 TAP HEROES UTILITY v4.0"
 title.TextColor3 = Color3.fromRGB(255, 255, 255)
 title.TextScaled = true
 title.Font = Enum.Font.GothamBold
 title.Parent = mainFrame
 
--- Close Button
 local closeBtn = Instance.new("TextButton")
 closeBtn.Size = UDim2.new(0, 30, 0, 30)
 closeBtn.Position = UDim2.new(1, -35, 0, 5)
@@ -351,7 +333,6 @@ closeBtn.MouseButton1Click:Connect(function()
     end
 end)
 
--- Status Label
 local statusLabel = Instance.new("TextLabel")
 statusLabel.Size = UDim2.new(1, -20, 0, 30)
 statusLabel.Position = UDim2.new(0, 10, 0, 50)
@@ -363,7 +344,6 @@ statusLabel.TextScaled = true
 statusLabel.Font = Enum.Font.GothamBold
 statusLabel.Parent = mainFrame
 
--- Stats Label
 local statsLabel = Instance.new("TextLabel")
 statsLabel.Size = UDim2.new(1, -20, 0, 60)
 statsLabel.Position = UDim2.new(0, 10, 0, 85)
@@ -375,7 +355,6 @@ statsLabel.TextScaled = true
 statsLabel.Font = Enum.Font.Gotham
 statsLabel.Parent = mainFrame
 
--- Rate Label
 local rateLabel = Instance.new("TextLabel")
 rateLabel.Size = UDim2.new(1, -20, 0, 30)
 rateLabel.Position = UDim2.new(0, 10, 0, 150)
@@ -387,7 +366,6 @@ rateLabel.TextScaled = true
 rateLabel.Font = Enum.Font.Gotham
 rateLabel.Parent = mainFrame
 
--- Current Upgrade Label
 local currentLabel = Instance.new("TextLabel")
 currentLabel.Size = UDim2.new(1, -20, 0, 30)
 currentLabel.Position = UDim2.new(0, 10, 0, 185)
@@ -399,7 +377,6 @@ currentLabel.TextScaled = true
 currentLabel.Font = Enum.Font.Gotham
 currentLabel.Parent = mainFrame
 
--- Last Payload Label
 local payloadLabel = Instance.new("TextLabel")
 payloadLabel.Size = UDim2.new(1, -20, 0, 30)
 payloadLabel.Position = UDim2.new(0, 10, 0, 220)
@@ -411,18 +388,16 @@ payloadLabel.TextScaled = true
 payloadLabel.Font = Enum.Font.Gotham
 payloadLabel.Parent = mainFrame
 
--- Start Button
 local startBtn = Instance.new("TextButton")
 startBtn.Size = UDim2.new(0.45, -10, 0, 40)
 startBtn.Position = UDim2.new(0.025, 0, 0, 270)
 startBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-startBtn.Text = "🚀 START SPAMMER"
+startBtn.Text = "🚀 START LOOP"
 startBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 startBtn.TextScaled = true
 startBtn.Font = Enum.Font.GothamBold
 startBtn.Parent = mainFrame
 
--- Reset Button
 local resetBtn = Instance.new("TextButton")
 resetBtn.Size = UDim2.new(0.45, -10, 0, 40)
 resetBtn.Position = UDim2.new(0.525, 0, 0, 270)
@@ -433,7 +408,6 @@ resetBtn.TextScaled = true
 resetBtn.Font = Enum.Font.GothamBold
 resetBtn.Parent = mainFrame
 
--- Settings Frame
 local settingsFrame = Instance.new("Frame")
 settingsFrame.Size = UDim2.new(1, -20, 0, 220)
 settingsFrame.Position = UDim2.new(0, 10, 0, 320)
@@ -443,7 +417,6 @@ settingsFrame.BorderSizePixel = 1
 settingsFrame.BorderColor3 = Color3.fromRGB(100, 50, 200)
 settingsFrame.Parent = mainFrame
 
--- Settings Title
 local settingsTitle = Instance.new("TextLabel")
 settingsTitle.Size = UDim2.new(1, 0, 0, 25)
 settingsTitle.Position = UDim2.new(0, 0, 0, 0)
@@ -454,7 +427,6 @@ settingsTitle.TextScaled = true
 settingsTitle.Font = Enum.Font.GothamBold
 settingsTitle.Parent = settingsFrame
 
--- Min Interval
 local minLabel = Instance.new("TextLabel")
 minLabel.Size = UDim2.new(0.4, 0, 0, 25)
 minLabel.Position = UDim2.new(0, 0, 0, 30)
@@ -484,7 +456,6 @@ minSlider.FocusLost:Connect(function()
     end
 end)
 
--- Max Interval
 local maxLabel = Instance.new("TextLabel")
 maxLabel.Size = UDim2.new(0.4, 0, 0, 25)
 maxLabel.Position = UDim2.new(0, 0, 0, 60)
@@ -514,7 +485,6 @@ maxSlider.FocusLost:Connect(function()
     end
 end)
 
--- Toggle Buttons
 local humanToggle = Instance.new("TextButton")
 humanToggle.Size = UDim2.new(0.45, 0, 0, 30)
 humanToggle.Position = UDim2.new(0, 0, 0, 95)
@@ -545,7 +515,6 @@ randomToggle.MouseButton1Click:Connect(function()
     randomToggle.BackgroundColor3 = CONFIG.RandomizeOrder and Color3.fromRGB(0, 200, 0) or Color3.fromRGB(200, 0, 0)
 end)
 
--- Webhook Input
 local webhookLabel = Instance.new("TextLabel")
 webhookLabel.Size = UDim2.new(0.3, 0, 0, 25)
 webhookLabel.Position = UDim2.new(0, 0, 0, 135)
@@ -569,7 +538,6 @@ webhookInput.FocusLost:Connect(function()
     CONFIG.WebhookURL = webhookInput.Text
 end)
 
--- Upgrade IDs Display
 local upgradeLabel = Instance.new("TextLabel")
 upgradeLabel.Size = UDim2.new(1, 0, 0, 50)
 upgradeLabel.Position = UDim2.new(0, 0, 0, 170)
@@ -597,19 +565,17 @@ end
 -- BUTTON FUNCTIONS
 -- ============================================
 
--- Start/Stop Button
 startBtn.MouseButton1Click:Connect(function()
     if isRunning then
         isRunning = false
         statusLabel.Text = "🔴 Status: STOPPED"
         statusLabel.TextColor3 = Color3.fromRGB(255, 100, 100)
-        startBtn.Text = "🚀 START SPAMMER"
+        startBtn.Text = "🚀 START LOOP"
         startBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
-        sendWebhook("⏹️ SPAMMER STOPPED", "Manual stop by user", 0xFFA500, {})
+        sendWebhook("⏹️ LOOP STOPPED", "Manual stop by user", 0xFFA500, {})
         return
     end
     
-    -- Check remote
     local remote = getRemoteEvent()
     if not remote then
         warn("[ERROR] RemoteEvent not found!")
@@ -621,12 +587,11 @@ startBtn.MouseButton1Click:Connect(function()
     isRunning = true
     statusLabel.Text = "🟢 Status: RUNNING"
     statusLabel.TextColor3 = Color3.fromRGB(100, 255, 100)
-    startBtn.Text = "⏹️ STOP SPAMMER"
+    startBtn.Text = "⏹️ STOP LOOP"
     startBtn.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
     
-    sendWebhook("🚀 SPAMMER STARTED", "User initiated spam", 0x00FF00, {})
+    sendWebhook("🚀 LOOP STARTED", "User initiated loop", 0x00FF00, {})
     
-    -- Start the loop
     task.spawn(function()
         local ok, err = pcall(spamLoop)
         if not ok then
@@ -634,14 +599,13 @@ startBtn.MouseButton1Click:Connect(function()
             isRunning = false
             statusLabel.Text = "🔴 Status: CRASHED"
             statusLabel.TextColor3 = Color3.fromRGB(255, 0, 0)
-            startBtn.Text = "🚀 START SPAMMER"
+            startBtn.Text = "🚀 START LOOP"
             startBtn.BackgroundColor3 = Color3.fromRGB(0, 200, 0)
             sendWebhook("💀 CRASH", "Loop crashed: " .. tostring(err), 0xFF0000, {})
         end
     end)
 end)
 
--- Reset Button
 resetBtn.MouseButton1Click:Connect(function()
     stats.totalAttempts = 0
     stats.totalSuccesses = 0
@@ -669,13 +633,12 @@ end)
 -- ============================================
 
 print("==========================================")
-print("🔥 TAP HEROES UPGRADE SPAMMER v4.0")
+print("🔥 TAP HEROES UTILITY v4.0")
 print("💻 PURE LUA UI - NO LIBRARIES")
 print("📡 UI Loaded Successfully")
 print("🎯 Press Right Shift to toggle UI")
 print("==========================================")
 
--- Find remote on startup
 local remote = getRemoteEvent()
 if remote then
     print("[SUCCESS] RemoteEvent found: " .. remote:GetFullName())
@@ -685,10 +648,9 @@ end
 
 UIUpdateStats()
 
--- Send startup webhook
 sendWebhook(
     "🖥️ UI LOADED",
-    "Tap Heroes Upgrade Spammer UI is ready",
+    "Interface is ready",
     0x9B59B6,
     {
         { name = "🎯 Upgrades", value = table.concat(CONFIG.UpgradeIDs, ", "), inline = false },
@@ -697,4 +659,6 @@ sendWebhook(
     }
 )
 
-print("[OK] UI Loaded. Press Right Shift to toggle.")
+print("[OK] UI Loaded. Press Right Shift to toggle visibility.")
+
+```
